@@ -24,3 +24,7 @@ htmlcov/
 *.log
 *.sqlite3
 *.db
+
+# Django
+staticfiles/
+media/
