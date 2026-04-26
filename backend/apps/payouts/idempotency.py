@@ -10,10 +10,11 @@ Contract (from the assignment):
 
 Implementation choices:
 
-  - We store an `IdempotencyKey` row with a sha256 fingerprint of the
-    canonical request body. If the same key is replayed with a *different*
-    body we return 409 - silently aliasing different intents to the same
-    payout would be a payments-team nightmare.
+  - We follow the spec literally: a second call with the same key returns
+    the cached response regardless of the incoming body. We still record
+    a sha256 `request_fingerprint` for forensic audit (so an operator can
+    answer "did the merchant send the same body the second time?"), but
+    a body mismatch is no longer a 409 - it returns the cached response.
   - We use `select_for_update()` with `get_or_create` to serialise
     concurrent first-time requests for the same key. Without this two
     parallel requests with the same key could each create their own
@@ -21,6 +22,11 @@ Implementation choices:
   - The cached response (`response_status`, `response_body`) is written
     inside the same transaction as the new payout, so a replay always
     sees a complete response or no record at all.
+  - In-flight case (key seen, no cached response yet because the first
+    handler crashed) returns 409. The spec only promises "same response
+    as the first" *after* the first has actually produced one; we cannot
+    fabricate a response that doesn't exist, and silently creating a
+    second payout would violate "no duplicate payout".
 """
 
 from __future__ import annotations
@@ -90,12 +96,11 @@ class IdempotencyResolution:
 def begin(merchant: Merchant, key: uuid.UUID, body: Any) -> IdempotencyResolution:
     """Look up or create an idempotency record. Must be called inside a tx.
 
-    - If a row exists, not expired, fingerprint matches, response cached:
-      return that cached response.
-    - If a row exists, not expired, fingerprint matches, no response yet:
-      this means a previous request crashed mid-flight; treat as a
-      conflict so the merchant retries safely.
-    - If a row exists with a different fingerprint: 409.
+    - If a row exists, not expired, response cached: return that cached
+      response (regardless of incoming body - strict spec semantics).
+    - If a row exists, not expired, no response yet: the original handler
+      crashed mid-flight; return 409 so the merchant retries rather than
+      risk a duplicate payout.
     - If expired: replace with a new record (the original payout, if any,
       remains in the system; only the dedup window has elapsed).
     - If brand new: create the record. Caller must persist_response().
@@ -132,11 +137,9 @@ def begin(merchant: Merchant, key: uuid.UUID, body: Any) -> IdempotencyResolutio
     if created:
         return IdempotencyResolution(record=record, cached=None)
 
-    # Existing & not expired.
-    if record.request_fingerprint != fp:
-        raise IdempotencyKeyConflictError(
-            "Idempotency-Key reused with a different request body"
-        )
+    # Existing & not expired. Per spec, replay returns the cached response
+    # regardless of body. We do NOT compare `record.request_fingerprint`
+    # against `fp` - it stays on the row purely for audit / forensics.
     if record.has_response():
         return IdempotencyResolution(
             record=record,
@@ -145,10 +148,10 @@ def begin(merchant: Merchant, key: uuid.UUID, body: Any) -> IdempotencyResolutio
                 body=record.response_body,
             ),
         )
-    # Same key, same body, no cached response - the original handler
-    # didn't finish. Tell the caller to retry rather than risk creating a
-    # duplicate; if they retry the original tx that crashed can never
-    # come back to write a response (it was rolled back).
+    # Same key, no cached response - the original handler didn't finish.
+    # Returning a "same response as the first" is impossible because the
+    # first hasn't produced one. Reject with 409 rather than create a
+    # duplicate payout.
     raise IdempotencyKeyConflictError(
         "Idempotency-Key in flight; retry shortly"
     )

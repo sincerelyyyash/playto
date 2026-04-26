@@ -1,7 +1,9 @@
 """Idempotency contract:
 
   1. Same key + same body -> exact same response, no duplicate payout.
-  2. Same key + different body -> 409.
+  2. Same key + different body -> still returns the cached response (the
+     spec says "second call returns the exact same response", and we take
+     that literally; body fingerprint is logged for audit only).
   3. Different key + same body -> two distinct payouts.
   4. Missing or malformed Idempotency-Key header -> 400.
   5. Keys are scoped per merchant.
@@ -43,13 +45,17 @@ def test_same_key_same_body_returns_cached_response(api_client, bank_account):
     assert Payout.objects.count() == 1
 
 
-def test_same_key_different_body_returns_409(api_client, bank_account):
+def test_same_key_different_body_returns_cached_response(api_client, bank_account):
+    """Strict spec semantics: replay returns the first response verbatim,
+    even if the body is different. The fingerprint is stored for audit
+    but does not gate the replay path."""
+
     key = uuid.uuid4()
     r1 = _post_payout(api_client, key=key, amount=1_000, bank_account_id=bank_account.id)
-    assert r1.status_code == 201
+    assert r1.status_code == 201, r1.content
     r2 = _post_payout(api_client, key=key, amount=2_000, bank_account_id=bank_account.id)
-    assert r2.status_code == 409
-    assert r2.json()["error"] == "idempotency_key_conflict"
+    assert r2.status_code == r1.status_code
+    assert r2.json() == r1.json()
     assert Payout.objects.count() == 1
 
 
