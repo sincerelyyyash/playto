@@ -129,7 +129,7 @@ assert abs(
     (PAYOUT_SUCCESS_RATE + PAYOUT_FAILURE_RATE + PAYOUT_HANG_RATE) - 1.0
 ) < 1e-6, "PAYOUT_SUCCESS_RATE + PAYOUT_FAILURE_RATE + PAYOUT_HANG_RATE must sum to 1.0"
 PAYOUT_STUCK_AFTER_SECONDS = env.int("PAYOUT_STUCK_AFTER_SECONDS", default=30)
-PAYOUT_MAX_ATTEMPTS = env.int("PAYOUT_MAX_ATTEMPTS", default=4)
+PAYOUT_MAX_ATTEMPTS = env.int("PAYOUT_MAX_ATTEMPTS", default=3)
 PAYOUT_RETRY_BASE_DELAY_SECONDS = env.int("PAYOUT_RETRY_BASE_DELAY_SECONDS", default=5)
 
 # --- Idempotency ---------------------------------------------------------

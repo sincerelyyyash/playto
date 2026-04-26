@@ -202,15 +202,16 @@ SELECT * FROM payouts
 
 For each stuck row:
 
-- If `attempt_count >= PAYOUT_MAX_ATTEMPTS` (default 4 = initial + 3
-  retries) → transition to `FAILED`. The held amount stops being held
-  the moment status changes, so funds are returned to `available`
-  without any debit ledger entry being written.
+- If `attempt_count >= PAYOUT_MAX_ATTEMPTS` (default **3**, matching
+  assignment.md “max 3 attempts”) → transition to `FAILED`. The held
+  amount stops being held the moment status changes, so funds are
+  returned to `available` without any debit ledger entry being written.
 - Otherwise → enqueue `retry_payout(payout_id)` with countdown
   `PAYOUT_RETRY_BASE_DELAY_SECONDS * 2 ** (attempt_count - 1)`. With
-  defaults that's 5s after the initial attempt hangs, 10s after the
-  next, 20s after the one after that. The fourth hang is the cap and
-  it goes to FAILED.
+  defaults that's **5s** after the first hang (`attempt_count=1`) and
+  **10s** after the second (`attempt_count=2`). A third stuck cycle
+  (`attempt_count=3`) hits the cap and goes straight to `FAILED` (no
+  third countdown — still exponential backoff with a hard cap).
 
 `SKIP LOCKED` matters: without it, two beat ticks (or a beat tick and
 a worker mid-settlement) could pile up on the same row. With it, the
@@ -242,9 +243,10 @@ second observer just skips and moves on.
   rows that are no longer in the expected state; double-settle is a
   no-op the second time.
 - `test_retry_watchdog.py` — stuck rows are picked up only when they
-  exceed the threshold; backoff is `5 * 2^attempt`; final FAILED
-  releases held funds without writing a debit; retry task increments
-  `attempt_count`.
+  exceed the threshold; backoff is
+  `PAYOUT_RETRY_BASE_DELAY_SECONDS * 2 ** (attempt_count - 1)` (e.g. 5s
+  then 10s with base 5); final FAILED releases held funds without
+  writing a debit; retry task increments `attempt_count`.
 - `test_payout_api.py` — happy-path POST, insufficient balance 422,
   balance reflects pending hold, detail endpoint, unauthenticated 401.
 

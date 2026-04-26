@@ -202,20 +202,20 @@ commits; if it rolls back, no message is sent.
 
 ---
 
-## 10. "Beat schedule in `CELERY_BEAT_SCHEDULE` setting"
+## 10. "Register Beat periodic tasks via `@app.on_after_configure` in `tasks.py`"
 
-**Tempting AI suggestion:** put the periodic schedule in a dict in
-`settings.py`. Standard Celery pattern.
+**Tempting AI suggestion:** connect a signal handler on the Celery app
+at import time so the schedule lives next to the task definitions.
 
-**Why it's not wrong, but worse:** the schedule lives away from the
-task it triggers, so renaming a task or changing its frequency
-requires editing two files. Also makes it harder to evolve the
-schedule (e.g., add a new periodic task) since contributors have to
-know to look in settings.
+**Why we moved away from that:** subtle import-order issues, the
+schedule is invisible to anyone grepping settings, and
+`django-celery-beat`'s `DatabaseScheduler` is easier to reason about
+when the declared schedule is the dict Django loads at startup.
 
-**Shipped instead:** `apps/payouts/tasks.py` registers periodic tasks
-on `app.on_after_configure` next to the task definitions. Single
-file, single source of truth.
+**Shipped instead:** `CELERY_BEAT_SCHEDULE` in `config/settings.py`
+(`scan-stuck-payouts-every-10s`, `cleanup-expired-idempotency-keys-hourly`).
+Trade-off: task renames need a matching edit in settings — acceptable
+for a small, assignment-sized codebase.
 
 ---
 
@@ -225,9 +225,10 @@ file, single source of truth.
   fine for thousands of in-flight payouts, but at millions a
   dedicated job queue per merchant or a Redis sorted-set scheduler
   would be cheaper.
-- Idempotency keys are pruned daily; very high-volume merchants
-  might fill the table between sweeps. A `pg_cron` job at the DB
-  level, or partitioning by `expires_at`, would handle that.
+- Idempotency keys are pruned hourly via Beat; very high-volume
+  merchants might still fill the table between sweeps. A `pg_cron`
+  job at the DB level, or partitioning by `expires_at`, would handle
+  that.
 - The settlement simulator is hard-coded to three outcomes; a real
   bank integration would need an idempotent webhook handler with
   its own dedup table — same pattern, different actor.

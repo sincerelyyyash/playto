@@ -20,7 +20,9 @@ def _post(client, *, key, body):
     )
 
 
-def test_create_payout_happy_path(api_client, bank_account):
+def test_create_payout_happy_path(api_client, bank_account, transactional_db):
+    """Needs real DB commits so `transaction.on_commit` runs and enqueues."""
+
     with mock.patch("apps.payouts.views._enqueue_processing") as enq:
         resp = _post(
             api_client,

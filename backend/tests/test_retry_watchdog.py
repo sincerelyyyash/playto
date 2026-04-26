@@ -1,9 +1,10 @@
 """Stuck-payout watchdog tests.
 
-Spec:
+Spec (assignment.md):
   - Payouts stuck in PROCESSING for >30s should be retried.
-  - Exponential backoff (5s/10s/20s), max 4 total attempts (initial + 3
-    retries), then move to FAILED.
+  - Exponential backoff, max 3 attempts, then FAILED.
+  - With defaults: first hang -> 5s countdown, second hang -> 10s;
+    third stuck cycle hits the cap (no further retry).
   - On final FAILED, held funds return to the merchant balance.
 """
 
@@ -52,8 +53,8 @@ def test_stuck_payout_retries_with_exponential_backoff(merchant, bank_account, s
 
 
 def test_stuck_payout_at_max_attempts_marked_failed(merchant, bank_account, settings):
-    settings.PAYOUT_MAX_ATTEMPTS = 4
-    p = _make_stuck_payout(merchant, bank_account, attempt_count=4)
+    settings.PAYOUT_MAX_ATTEMPTS = 3
+    p = _make_stuck_payout(merchant, bank_account, attempt_count=3)
 
     pre = get_balance(merchant.id)
     assert pre.held_paise == 4_000  # held while PROCESSING

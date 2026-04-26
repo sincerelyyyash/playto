@@ -116,12 +116,11 @@ def scan_stuck_payouts() -> dict:
       - Otherwise -> enqueue `retry_payout` with exponential backoff:
         delay = PAYOUT_RETRY_BASE_DELAY_SECONDS * 2^(attempt_count - 1).
 
-        With the defaults (base 5s, max 4 attempts) and `attempt_count`
-        bumped by `claim_for_processing`, this gives:
+        With the defaults (base 5s, max 3 attempts per assignment.md) and
+        `attempt_count` bumped by `claim_for_processing` / `claim_for_retry`:
           attempt_count=1 (initial hung)  -> retry in 5s
           attempt_count=2 (1st retry hung) -> retry in 10s
-          attempt_count=3 (2nd retry hung) -> retry in 20s
-          attempt_count=4 (3rd retry hung) -> FAILED (no further retry)
+          attempt_count=3 (2nd retry hung) -> FAILED (assignment cap)
 
     The query uses `select_for_update(skip_locked=True)` so concurrent
     beat ticks (or a worker mid-settlement) don't collide on the same row.
