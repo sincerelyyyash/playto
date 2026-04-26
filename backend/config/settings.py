@@ -1,0 +1,146 @@
+"""Django settings for the Playto Payout Engine.
+
+Environment-driven via django-environ. All money-relevant tunables (settlement
+simulation rates, retry counts, idempotency TTL) are exposed as env vars so the
+behaviour can be toggled in tests and demos without code changes.
+"""
+
+from pathlib import Path
+
+import environ
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+env = environ.Env(
+    DEBUG=(bool, False),
+)
+
+env_file = BASE_DIR / ".env"
+if env_file.exists():
+    environ.Env.read_env(env_file)
+
+SECRET_KEY = env("SECRET_KEY", default="dev-insecure-key-do-not-use-in-prod")
+DEBUG = env("DEBUG")
+ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["*"])
+
+INSTALLED_APPS = [
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    "rest_framework",
+    "rest_framework.authtoken",
+    "django_celery_beat",
+    "apps.merchants",
+    "apps.ledger",
+    "apps.payouts",
+]
+
+MIDDLEWARE = [
+    "django.middleware.security.SecurityMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
+]
+
+ROOT_URLCONF = "config.urls"
+
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.debug",
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
+            ],
+        },
+    },
+]
+
+WSGI_APPLICATION = "config.wsgi.application"
+
+DATABASES = {
+    "default": env.db(
+        "DATABASE_URL",
+        default="postgres://playto:playto@localhost:5432/playto",
+    ),
+}
+
+AUTH_PASSWORD_VALIDATORS = []
+
+LANGUAGE_CODE = "en-us"
+TIME_ZONE = "UTC"
+USE_I18N = True
+USE_TZ = True
+
+STATIC_URL = "static/"
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.TokenAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
+    "PAGE_SIZE": 25,
+    "TEST_REQUEST_DEFAULT_FORMAT": "json",
+    "EXCEPTION_HANDLER": "apps.payouts.exceptions.payout_exception_handler",
+}
+
+# --- Celery ---------------------------------------------------------------
+CELERY_BROKER_URL = env("CELERY_BROKER_URL", default="redis://localhost:6379/0")
+CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND", default="redis://localhost:6379/1")
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
+CELERY_TASK_ALWAYS_EAGER = env.bool("CELERY_TASK_ALWAYS_EAGER", default=False)
+CELERY_BEAT_SCHEDULE = {
+    "scan-stuck-payouts-every-10s": {
+        "task": "payouts.scan_stuck_payouts",
+        "schedule": 10.0,
+    },
+    "cleanup-expired-idempotency-keys-daily": {
+        "task": "payouts.cleanup_expired_idempotency_keys",
+        # Run once an hour - cheap and bounds the table size more tightly.
+        "schedule": 3600.0,
+    },
+}
+
+# --- Payout simulation / retry ------------------------------------------
+PAYOUT_SUCCESS_RATE = env.float("PAYOUT_SUCCESS_RATE", default=0.70)
+PAYOUT_FAILURE_RATE = env.float("PAYOUT_FAILURE_RATE", default=0.20)
+PAYOUT_HANG_RATE = env.float("PAYOUT_HANG_RATE", default=0.10)
+PAYOUT_STUCK_AFTER_SECONDS = env.int("PAYOUT_STUCK_AFTER_SECONDS", default=30)
+PAYOUT_MAX_ATTEMPTS = env.int("PAYOUT_MAX_ATTEMPTS", default=3)
+PAYOUT_RETRY_BASE_DELAY_SECONDS = env.int("PAYOUT_RETRY_BASE_DELAY_SECONDS", default=5)
+
+# --- Idempotency ---------------------------------------------------------
+IDEMPOTENCY_TTL_HOURS = env.int("IDEMPOTENCY_TTL_HOURS", default=24)
+
+# --- Logging -------------------------------------------------------------
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "simple": {"format": "%(asctime)s %(levelname)s %(name)s %(message)s"},
+    },
+    "handlers": {
+        "console": {"class": "logging.StreamHandler", "formatter": "simple"},
+    },
+    "loggers": {
+        "apps": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "celery": {"handlers": ["console"], "level": "INFO", "propagate": False},
+    },
+    "root": {"handlers": ["console"], "level": "WARNING"},
+}
