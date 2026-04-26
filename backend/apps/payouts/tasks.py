@@ -15,11 +15,10 @@ Two task families:
     locked with `skip_locked` so two beat ticks can't fight over the
     same row.
 
-  - `cleanup_expired_idempotency_keys()` runs daily and prunes records
+  - `cleanup_expired_idempotency_keys()` runs hourly and prunes records
     whose 24h window has elapsed.
 
-The Beat schedule is registered on the Celery app via the
-`@app.on_after_configure.connect` signal at module import time.
+The Beat schedule is wired up in `settings.CELERY_BEAT_SCHEDULE`.
 """
 
 from __future__ import annotations
@@ -98,8 +97,12 @@ def _settle(payout_id: str) -> str:
             log.warning("settle_failure.illegal id=%s", payout_id)
         return "claimed_then_failure"
 
-    # HANG: leave the row in PROCESSING with an old `processing_started_at`
-    # so the stuck-payout watchdog will pick it up.
+    # HANG (10% per the simulator): intentionally do nothing. The row stays
+    # in PROCESSING with the `processing_started_at` we set when we claimed
+    # it; once that timestamp is older than `PAYOUT_STUCK_AFTER_SECONDS`,
+    # `scan_stuck_payouts` will pick it up and either retry or FAIL it.
+    # This is what "hangs in processing 10 percent of the time" looks like
+    # from the worker's perspective.
     return "claimed_then_hang"
 
 
@@ -111,7 +114,14 @@ def scan_stuck_payouts() -> dict:
       - If `attempt_count >= PAYOUT_MAX_ATTEMPTS` -> transition to FAILED.
         Held funds are released by the status change.
       - Otherwise -> enqueue `retry_payout` with exponential backoff:
-        delay = PAYOUT_RETRY_BASE_DELAY_SECONDS * 2^attempt_count.
+        delay = PAYOUT_RETRY_BASE_DELAY_SECONDS * 2^(attempt_count - 1).
+
+        With the defaults (base 5s, max 4 attempts) and `attempt_count`
+        bumped by `claim_for_processing`, this gives:
+          attempt_count=1 (initial hung)  -> retry in 5s
+          attempt_count=2 (1st retry hung) -> retry in 10s
+          attempt_count=3 (2nd retry hung) -> retry in 20s
+          attempt_count=4 (3rd retry hung) -> FAILED (no further retry)
 
     The query uses `select_for_update(skip_locked=True)` so concurrent
     beat ticks (or a worker mid-settlement) don't collide on the same row.
@@ -135,7 +145,9 @@ def scan_stuck_payouts() -> dict:
                     summary["failed"] += 1
                 continue
 
-            delay = settings.PAYOUT_RETRY_BASE_DELAY_SECONDS * (2**p.attempt_count)
+            delay = settings.PAYOUT_RETRY_BASE_DELAY_SECONDS * (
+                2 ** (p.attempt_count - 1)
+            )
             retry_payout.apply_async((str(p.id),), countdown=delay)
             summary["retried"] += 1
 

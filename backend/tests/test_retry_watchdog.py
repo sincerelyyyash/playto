@@ -2,7 +2,8 @@
 
 Spec:
   - Payouts stuck in PROCESSING for >30s should be retried.
-  - Exponential backoff, max 3 attempts, then move to FAILED.
+  - Exponential backoff (5s/10s/20s), max 4 total attempts (initial + 3
+    retries), then move to FAILED.
   - On final FAILED, held funds return to the merchant balance.
 """
 
@@ -46,13 +47,13 @@ def test_stuck_payout_retries_with_exponential_backoff(merchant, bank_account, s
     args, kwargs = enqueue.call_args
     # Args is the positional tuple to apply_async: ((payout_id,),)
     assert args[0] == (str(p.id),)
-    # 5 * 2^1 = 10s
-    assert kwargs["countdown"] == 10
+    # First hang (attempt_count=1): 5 * 2^(1-1) = 5s
+    assert kwargs["countdown"] == 5
 
 
 def test_stuck_payout_at_max_attempts_marked_failed(merchant, bank_account, settings):
-    settings.PAYOUT_MAX_ATTEMPTS = 3
-    p = _make_stuck_payout(merchant, bank_account, attempt_count=3)
+    settings.PAYOUT_MAX_ATTEMPTS = 4
+    p = _make_stuck_payout(merchant, bank_account, attempt_count=4)
 
     pre = get_balance(merchant.id)
     assert pre.held_paise == 4_000  # held while PROCESSING

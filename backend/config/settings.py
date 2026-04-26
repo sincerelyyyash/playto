@@ -110,7 +110,7 @@ CELERY_BEAT_SCHEDULE = {
         "task": "payouts.scan_stuck_payouts",
         "schedule": 10.0,
     },
-    "cleanup-expired-idempotency-keys-daily": {
+    "cleanup-expired-idempotency-keys-hourly": {
         "task": "payouts.cleanup_expired_idempotency_keys",
         # Run once an hour - cheap and bounds the table size more tightly.
         "schedule": 3600.0,
@@ -121,8 +121,15 @@ CELERY_BEAT_SCHEDULE = {
 PAYOUT_SUCCESS_RATE = env.float("PAYOUT_SUCCESS_RATE", default=0.70)
 PAYOUT_FAILURE_RATE = env.float("PAYOUT_FAILURE_RATE", default=0.20)
 PAYOUT_HANG_RATE = env.float("PAYOUT_HANG_RATE", default=0.10)
+# Fail-fast on misconfiguration: the simulator picks an outcome by
+# weighted random over these three, so they must sum to 1.0. Without
+# this assert a typo (e.g. 0.7 / 0.2 / 0.05) silently degrades the
+# simulation distribution.
+assert abs(
+    (PAYOUT_SUCCESS_RATE + PAYOUT_FAILURE_RATE + PAYOUT_HANG_RATE) - 1.0
+) < 1e-6, "PAYOUT_SUCCESS_RATE + PAYOUT_FAILURE_RATE + PAYOUT_HANG_RATE must sum to 1.0"
 PAYOUT_STUCK_AFTER_SECONDS = env.int("PAYOUT_STUCK_AFTER_SECONDS", default=30)
-PAYOUT_MAX_ATTEMPTS = env.int("PAYOUT_MAX_ATTEMPTS", default=3)
+PAYOUT_MAX_ATTEMPTS = env.int("PAYOUT_MAX_ATTEMPTS", default=4)
 PAYOUT_RETRY_BASE_DELAY_SECONDS = env.int("PAYOUT_RETRY_BASE_DELAY_SECONDS", default=5)
 
 # --- Idempotency ---------------------------------------------------------
