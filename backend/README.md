@@ -78,9 +78,9 @@ Highlights:
 
 - `tests/test_balance_invariant.py` — verifies `SUM(credits) - SUM(debits) == settled balance` under mixed workloads.
 - `tests/test_concurrency_payout_creation.py` — real threads, real Postgres locks: exactly one of two simultaneous 60₹ requests wins on a 100₹ balance.
-- `tests/test_idempotency.py` — replays, body-mismatch 409, per-merchant scoping, expiry.
+- `tests/test_idempotency.py` — replays return the cached response (incl. when the body differs — strict-spec semantics), per-merchant scoping, expiry.
 - `tests/test_state_machine.py` — every illegal transition rejected by both the Python guard and the conditional UPDATE.
-- `tests/test_retry_watchdog.py` — exponential backoff, max-3 attempts, funds returned on final failure.
+- `tests/test_retry_watchdog.py` — exponential backoff (5/10/20s), max 4 total attempts (initial + 3 retries), funds returned on final failure.
 
 ## Tunable knobs
 
@@ -92,6 +92,6 @@ All env-driven (see `.env.example`):
 | `PAYOUT_FAILURE_RATE`              | 0.2     | Simulated failure probability                 |
 | `PAYOUT_HANG_RATE`                 | 0.1     | Simulated hang probability (worker drops it)  |
 | `PAYOUT_STUCK_AFTER_SECONDS`       | 30      | Watchdog cutoff                               |
-| `PAYOUT_MAX_ATTEMPTS`              | 3       | Max retries before FAILED                     |
-| `PAYOUT_RETRY_BASE_DELAY_SECONDS`  | 5       | Base for exponential backoff: `base * 2^attempt` |
+| `PAYOUT_MAX_ATTEMPTS`              | 4       | Total attempts before FAILED (initial + 3 retries) |
+| `PAYOUT_RETRY_BASE_DELAY_SECONDS`  | 5       | Base for exponential backoff: `base * 2^(attempt-1)` -> 5s/10s/20s |
 | `IDEMPOTENCY_TTL_HOURS`            | 24      | Idempotency-Key dedup window                  |

@@ -161,21 +161,33 @@ Contract from the assignment:
 - Lookup uses `select_for_update().get_or_create(...)`, so two
   concurrent requests with the same key serialise. The loser sees the
   winner's row.
-- We store a `request_fingerprint = sha256(canonical_body)`. Replays
-  with the same key but a different body return **409** rather than
-  silently aliasing different intents to the same payout. (This is
-  not in the spec, but it's the behaviour Stripe / Square ship; the
-  alternative — accepting a different body and returning the cached
-  response — would mean a payment of $50 looks like a payment of
-  $5000.)
+- We store a `request_fingerprint = sha256(canonical_body)` on the row
+  for **forensic audit only**. The replay path does *not* compare it
+  against the incoming body. The spec says "the second call with the
+  same key returns the exact same response", and we take that
+  literally — a replay returns the cached response regardless of
+  body. The fingerprint lets an operator answer "did the merchant
+  actually send the same body?" after the fact without changing the
+  HTTP behaviour.
+- We initially over-engineered this to Stripe-style "409 on body
+  mismatch". That's a real safety property (a $50 payout can't be
+  silently replayed as $5000), but it isn't what the spec asks for.
+  We reverted it; see `AI_AUDIT.md` entry 4. The trade-off is
+  documented so a misbehaving client that reuses a key with a
+  different body silently inherits the first call's payout result.
 - The cached `(response_status, response_body)` are written **inside
   the same transaction** as the payout creation. So a replay either
   sees a fully-formed response *and* a real payout, or no record at
   all. There is no half-state where the row exists but the cached
   response is null in a way callers would observe.
+- In-flight edge case: if a previous request crashed *after* claiming
+  the key but *before* writing the cached response, a replay returns
+  **409** ("retry shortly") rather than fabricating a response or
+  creating a duplicate payout. The spec only promises "same response
+  as the first" once the first has actually produced one.
 - Expiry: rows have `expires_at = created_at + 24h`. Lookups treat
   expired rows as if they don't exist, opening a fresh dedup window.
-  A daily Beat task (`cleanup_expired_idempotency_keys`) prunes them.
+  An hourly Beat task (`cleanup_expired_idempotency_keys`) prunes them.
 
 ## 7. Retry / stuck-payout watchdog
 
@@ -190,13 +202,15 @@ SELECT * FROM payouts
 
 For each stuck row:
 
-- If `attempt_count >= PAYOUT_MAX_ATTEMPTS` (default 3) → transition
-  to `FAILED`. The held amount stops being held the moment status
-  changes, so funds are returned to `available` without any debit
-  ledger entry being written.
+- If `attempt_count >= PAYOUT_MAX_ATTEMPTS` (default 4 = initial + 3
+  retries) → transition to `FAILED`. The held amount stops being held
+  the moment status changes, so funds are returned to `available`
+  without any debit ledger entry being written.
 - Otherwise → enqueue `retry_payout(payout_id)` with countdown
-  `PAYOUT_RETRY_BASE_DELAY_SECONDS * 2 ** attempt_count`. Default:
-  5s, 10s, 20s.
+  `PAYOUT_RETRY_BASE_DELAY_SECONDS * 2 ** (attempt_count - 1)`. With
+  defaults that's 5s after the initial attempt hangs, 10s after the
+  next, 20s after the one after that. The fourth hang is the cap and
+  it goes to FAILED.
 
 `SKIP LOCKED` matters: without it, two beat ticks (or a beat tick and
 a worker mid-settlement) could pile up on the same row. With it, the
@@ -210,7 +224,7 @@ second observer just skips and moves on.
 | `if payout.status == 'pending': payout.status = ...`    | `filter(status='pending').update(...)` (CAS)         |
 | Treating retries as "go back to pending"                | Stays in PROCESSING, bumps attempt_count             |
 | `IdempotencyKey.save()` then later `update()`           | One transaction; row+response committed atomically   |
-| Idempotency dedup on key alone                          | `+ sha256(body)` so swapped bodies 409, not alias    |
+| Storing only the cached response                        | Also store a body fingerprint for post-hoc audit     |
 | `select_related` for balance                            | One `Coalesce(Sum(...), 0)` aggregate per number     |
 | `transaction=False` on tests                            | Real `transactional_db` for concurrency tests        |
 
@@ -221,8 +235,9 @@ second observer just skips and moves on.
 - `test_concurrency_payout_creation.py` — the headline test: 100₹
   balance, two 60₹ threads, exactly one wins. Plus a 3-way variant.
 - `test_idempotency.py` — same key + same body = cached response,
-  same key + different body = 409, missing/malformed header = 400,
-  per-merchant scoping, 24h expiry.
+  same key + different body = the *same* cached response (strict spec
+  semantics), missing/malformed header = 400, per-merchant scoping,
+  24h expiry.
 - `test_state_machine.py` — every illegal pair raises; CAS catches
   rows that are no longer in the expected state; double-settle is a
   no-op the second time.
