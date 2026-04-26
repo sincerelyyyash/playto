@@ -11,6 +11,7 @@ def healthz(_request):
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("healthz", healthz),
+    path("api/v1/auth/token", obtain_auth_token),
     path("api/v1/auth/token/", obtain_auth_token, name="api-token-auth"),
     path("api/v1/", include("apps.merchants.urls")),
     path("api/v1/", include("apps.payouts.urls")),
