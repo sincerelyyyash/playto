@@ -2,6 +2,8 @@
 
 Django + DRF + PostgreSQL + Celery (Redis) implementation of the Playto Payout Engine.
 
+The React merchant dashboard lives in [`../frontend/`](../frontend/) (run `npm run dev` there; Vite proxies `/api` to this service).
+
 See [EXPLAINER.md](EXPLAINER.md) for the why behind every non-obvious choice
 (locking, ledger semantics, idempotency, state machine, retries) and
 [AI_AUDIT.md](AI_AUDIT.md) for an honest log of where AI suggestions had to be
