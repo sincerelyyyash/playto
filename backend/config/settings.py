@@ -11,6 +11,7 @@ import ssl
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import environ
+from corsheaders.defaults import default_headers
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -60,6 +61,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "corsheaders",
     "rest_framework",
     "rest_framework.authtoken",
     "django_celery_beat",
@@ -70,6 +72,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -114,6 +117,12 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Split frontend + API hosts: list the SPA origins (scheme + host + port), no trailing slash.
+CORS_ALLOWED_ORIGINS = [
+    o for o in env.list("CORS_ALLOWED_ORIGINS", default=[]) if o
+]
+CORS_ALLOW_HEADERS = list(default_headers) + ["idempotency-key"]
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [

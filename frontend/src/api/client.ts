@@ -1,10 +1,13 @@
-/** API client: all paths are under `/api/v1/` (Vite dev proxy → Django). */
+/** API client: paths under `/api/v1/`. Dev: Vite proxies `/api` to Django. Prod: set `VITE_API_BASE_URL`. */
 
 export const AUTH_TOKEN_STORAGE_KEY = 'playto_auth_token'
 
 function apiUrl(path: string): string {
   const p = path.replace(/^\//, '')
-  return `/api/v1/${p}`
+  const base = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
+  const suffix = `/api/v1/${p}`
+  if (!base) return suffix
+  return `${base}${suffix}`
 }
 
 export type ApiFetchOptions = RequestInit & {
