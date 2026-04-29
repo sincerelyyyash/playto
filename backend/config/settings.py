@@ -134,6 +134,11 @@ PAYOUT_RETRY_BASE_DELAY_SECONDS = env.int("PAYOUT_RETRY_BASE_DELAY_SECONDS", def
 
 # --- Idempotency ---------------------------------------------------------
 IDEMPOTENCY_TTL_HOURS = env.int("IDEMPOTENCY_TTL_HOURS", default=24)
+# If an idempotency row exists without a cached response (rare: orphaned row
+# or edge-case races), POST retries until this timeout then returns 409.
+IDEMPOTENCY_IN_FLIGHT_WAIT_SECONDS = env.int(
+    "IDEMPOTENCY_IN_FLIGHT_WAIT_SECONDS", default=30
+)
 
 # --- Logging -------------------------------------------------------------
 LOGGING = {

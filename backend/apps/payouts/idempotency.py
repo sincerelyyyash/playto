@@ -22,11 +22,12 @@ Implementation choices:
   - The cached response (`response_status`, `response_body`) is written
     inside the same transaction as the new payout, so a replay always
     sees a complete response or no record at all.
-  - In-flight case (key seen, no cached response yet because the first
-    handler crashed) returns 409. The spec only promises "same response
-    as the first" *after* the first has actually produced one; we cannot
-    fabricate a response that doesn't exist, and silently creating a
-    second payout would violate "no duplicate payout".
+  - If a row exists with no cached response yet: under PostgreSQL the
+    normal case is a concurrent duplicate POST blocked on ``SELECT ... FOR
+    UPDATE`` until the leader commits with ``persist_response``. A 409 is only
+    returned after ``IDEMPOTENCY_IN_FLIGHT_WAIT_SECONDS`` (see views) when
+    no response ever appears — e.g. an orphaned row from partial manual DB
+    state, not from the happy path.
 """
 
 from __future__ import annotations
@@ -98,9 +99,10 @@ def begin(merchant: Merchant, key: uuid.UUID, body: Any) -> IdempotencyResolutio
 
     - If a row exists, not expired, response cached: return that cached
       response (regardless of incoming body - strict spec semantics).
-    - If a row exists, not expired, no response yet: the original handler
-      crashed mid-flight; return 409 so the merchant retries rather than
-      risk a duplicate payout.
+    - If a row exists, not expired, no response yet: with PostgreSQL the
+      usual case is still blocking on the row lock until the leader commits.
+      If we reach here with an orphaned row (no writer), the view layer
+      retries until a cached response appears or times out, then surfaces 409.
     - If expired: replace with a new record (the original payout, if any,
       remains in the system; only the dedup window has elapsed).
     - If brand new: create the record. Caller must persist_response().
@@ -148,10 +150,9 @@ def begin(merchant: Merchant, key: uuid.UUID, body: Any) -> IdempotencyResolutio
                 body=record.response_body,
             ),
         )
-    # Same key, no cached response - the original handler didn't finish.
-    # Returning a "same response as the first" is impossible because the
-    # first hasn't produced one. Reject with 409 rather than create a
-    # duplicate payout.
+    # Same key, no cached response yet: duplicate payout would violate the
+    # spec. Surfaces as 409 after view-level wait timeout; see
+    # `IDEMPOTENCY_IN_FLIGHT_WAIT_SECONDS`.
     raise IdempotencyKeyConflictError(
         "Idempotency-Key in flight; retry shortly"
     )

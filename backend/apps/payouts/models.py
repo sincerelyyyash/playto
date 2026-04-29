@@ -78,11 +78,9 @@ class Payout(models.Model):
 class IdempotencyKey(models.Model):
     """Merchant-scoped, 24-hour TTL idempotency record.
 
-    `request_fingerprint` is sha256 of the canonical request body. Replays
-    with the same key but different body get a 409 instead of silently
-    being aliased to the original payout. `response_status` /
-    `response_body` are populated once the original request finishes, so a
-    second call with the same key returns *exactly* the same response.
+    `request_fingerprint` is sha256 of the canonical request body (audit).
+    Replays with the same key return the cached response regardless of body.
+    `response_status` / `response_body` are set when the handler finishes.
     """
 
     merchant = models.ForeignKey(

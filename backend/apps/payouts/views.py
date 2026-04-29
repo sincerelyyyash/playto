@@ -19,7 +19,9 @@ creation under one `transaction.atomic()`:
 from __future__ import annotations
 
 import logging
+import time
 
+from django.conf import settings
 from django.db import transaction
 from rest_framework import generics, status
 from rest_framework.response import Response
@@ -27,6 +29,7 @@ from rest_framework.views import APIView
 
 from apps.merchants.permissions import merchant_for_request
 from apps.payouts import idempotency
+from apps.payouts.exceptions import IdempotencyKeyConflictError
 from apps.payouts.models import Payout
 from apps.payouts.serializers import (
     CreatePayoutRequestSerializer,
@@ -57,37 +60,46 @@ class PayoutCreateListView(APIView):
         merchant = merchant_for_request(request)
         key = idempotency.parse_key(request.headers.get(idempotency.HEADER_NAME))
 
-        with transaction.atomic():
-            resolution = idempotency.begin(merchant, key, request.data)
-            if resolution.cached is not None:
-                return Response(
-                    resolution.cached.body, status=resolution.cached.status
-                )
+        deadline = time.monotonic() + settings.IDEMPOTENCY_IN_FLIGHT_WAIT_SECONDS
 
-            serializer = CreatePayoutRequestSerializer(data=request.data)
-            serializer.is_valid(raise_exception=True)
+        while True:
+            try:
+                with transaction.atomic():
+                    resolution = idempotency.begin(merchant, key, request.data)
+                    if resolution.cached is not None:
+                        return Response(
+                            resolution.cached.body,
+                            status=resolution.cached.status,
+                        )
 
-            payout = create_payout(
-                CreatePayoutInput(
-                    merchant=merchant,
-                    amount_paise=serializer.validated_data["amount_paise"],
-                    bank_account_id=str(
-                        serializer.validated_data["bank_account_id"]
-                    ),
-                )
-            )
+                    serializer = CreatePayoutRequestSerializer(data=request.data)
+                    serializer.is_valid(raise_exception=True)
 
-            body = PayoutSerializer(payout).data
-            idempotency.persist_response(
-                resolution.record,
-                status=status.HTTP_201_CREATED,
-                body=body,
-                payout_id=payout.id,
-            )
+                    payout = create_payout(
+                        CreatePayoutInput(
+                            merchant=merchant,
+                            amount_paise=serializer.validated_data["amount_paise"],
+                            bank_account_id=str(
+                                serializer.validated_data["bank_account_id"]
+                            ),
+                        )
+                    )
 
-            transaction.on_commit(lambda: _enqueue_processing(payout.id))
+                    body = PayoutSerializer(payout).data
+                    idempotency.persist_response(
+                        resolution.record,
+                        status=status.HTTP_201_CREATED,
+                        body=body,
+                        payout_id=payout.id,
+                    )
 
-            return Response(body, status=status.HTTP_201_CREATED)
+                    transaction.on_commit(lambda: _enqueue_processing(payout.id))
+
+                    return Response(body, status=status.HTTP_201_CREATED)
+            except IdempotencyKeyConflictError:
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.05)
 
 
 class PayoutDetailView(generics.RetrieveAPIView):

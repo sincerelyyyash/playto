@@ -12,10 +12,12 @@
 
 from __future__ import annotations
 
+import threading
 import uuid
 from datetime import timedelta
 
 import pytest
+from django.db import close_old_connections
 from django.utils import timezone
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
@@ -33,6 +35,48 @@ def _post_payout(client, *, key, amount, bank_account_id):
         format="json",
         HTTP_IDEMPOTENCY_KEY=str(key),
     )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_posts_same_idempotency_key_both_succeed_with_same_body(
+    merchant, bank_account,
+):
+    """Two simultaneous POSTs with the same key must not 409; both get the first response."""
+
+    token, _ = Token.objects.get_or_create(user=merchant.user)
+
+    def make_client() -> APIClient:
+        c = APIClient()
+        c.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+        return c
+
+    c1, c2 = make_client(), make_client()
+    key = uuid.uuid4()
+    barrier = threading.Barrier(2)
+    results: list[object | None] = [None, None]
+
+    def post(i: int, client: APIClient) -> None:
+        try:
+            barrier.wait(timeout=5)
+            results[i] = _post_payout(
+                client, key=key, amount=1_000, bank_account_id=bank_account.id
+            )
+        finally:
+            close_old_connections()
+
+    t1 = threading.Thread(target=post, args=(0, c1))
+    t2 = threading.Thread(target=post, args=(1, c2))
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    r0, r1 = results[0], results[1]
+    assert r0 is not None and r1 is not None
+    assert r0.status_code == 201, r0.content
+    assert r1.status_code == 201, r1.content
+    assert r0.json() == r1.json()
+    assert Payout.objects.count() == 1
 
 
 def test_same_key_same_body_returns_cached_response(api_client, bank_account):
