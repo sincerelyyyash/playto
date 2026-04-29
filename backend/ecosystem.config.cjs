@@ -1,10 +1,14 @@
 /**
- * PM2 ecosystem: Celery only (no Gunicorn, no Postgres/Redis on this VM).
+ * PM2 ecosystem: Gunicorn (HTTP API) + Celery worker + Celery beat.
+ * Postgres / Redis are expected via .env (e.g. managed services), not started here.
  *
  * Prerequisites:
- *   - Python venv at ./.venv with backend deps installed (`pip install -r requirements.txt`)
- *   - .env with DATABASE_URL (managed Postgres), CELERY_BROKER_URL /
- *     CELERY_RESULT_BACKEND (managed or remote Redis), Django secrets, etc.
+ *   - Python venv at ./.venv with deps: pip install -r requirements.txt
+ *   - .env with DATABASE_URL, CELERY_BROKER_URL, CELERY_RESULT_BACKEND, SECRET_KEY, etc.
+ *   - Run migrations (and seed) before or after first start:
+ *       python manage.py migrate && python manage.py seed_demo
+ *
+ * API binds to 0.0.0.0:8010 — set ALLOWED_HOSTS in .env to your VM IP or domain.
  *
  * Usage (from this directory):
  *   pm2 start ecosystem.config.cjs
@@ -17,6 +21,8 @@ const fs = require('fs')
 const ROOT = __dirname
 const VENV_BIN = path.join(ROOT, '.venv', 'bin')
 const ENV_PATH = path.join(ROOT, '.env')
+/** Public HTTP port for Gunicorn (e.g. put nginx in front on 80/443). */
+const WEB_PORT = 8010
 
 /**
  * Minimal KEY=value parser (first '=' only). Skips empty lines and # comments.
@@ -51,6 +57,19 @@ const envFromFile = loadDotEnv(ENV_PATH)
 
 module.exports = {
   apps: [
+    {
+      name: 'playto-gunicorn',
+      cwd: ROOT,
+      script: path.join(VENV_BIN, 'gunicorn'),
+      args: `config.wsgi:application --bind 0.0.0.0:${WEB_PORT} --workers 1`,
+      interpreter: 'none',
+      env: {
+        ...envFromFile,
+        PYTHONUNBUFFERED: '1',
+      },
+      max_restarts: 20,
+      exp_backoff_restart_delay: 2000,
+    },
     {
       name: 'playto-celery-worker',
       cwd: ROOT,
