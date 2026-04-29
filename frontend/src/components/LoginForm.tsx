@@ -23,39 +23,31 @@ export function LoginForm() {
   }
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4">
-      <div className="rounded-xl border border-slate-200 bg-white p-8 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-          Playto Payout Engine
-        </h1>
-        <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-          Sign in with a seeded merchant (e.g. username <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">alice</code>, password{' '}
-          <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">alice</code> after{' '}
-          <code className="text-xs">make seed</code> in backend).
+    <div className="app-shell mx-auto flex min-h-screen max-w-md flex-col justify-center px-4">
+      <div className="surface p-8">
+        <h1 className="text-2xl font-semibold text-slate-100">Playto Payout Engine</h1>
+        <p className="mt-2 text-sm text-slate-400">
+          Sign in with seeded merchant creds, for example user{' '}
+          <code className="rounded bg-slate-800 px-1 text-slate-200">alice</code> and pass{' '}
+          <code className="rounded bg-slate-800 px-1 text-slate-200">alice</code> after seeding.
         </p>
         <form className="mt-6 space-y-4" onSubmit={onSubmit}>
           <div>
-            <label
-              htmlFor="username"
-              className="block text-sm font-medium text-slate-700 dark:text-slate-300"
-            >
+            <label htmlFor="username" className="block text-sm font-medium text-slate-300">
               Username
             </label>
             <input
               id="username"
               name="username"
               autoComplete="username"
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+              className="mono-input"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               required
             />
           </div>
           <div>
-            <label
-              htmlFor="password"
-              className="block text-sm font-medium text-slate-700 dark:text-slate-300"
-            >
+            <label htmlFor="password" className="block text-sm font-medium text-slate-300">
               Password
             </label>
             <input
@@ -63,21 +55,21 @@ export function LoginForm() {
               name="password"
               type="password"
               autoComplete="current-password"
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+              className="mono-input"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
             />
           </div>
           {error ? (
-            <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+            <p className="rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-300" role="alert">
               {error}
             </p>
           ) : null}
           <button
             type="submit"
             disabled={pending}
-            className="w-full rounded-lg bg-violet-600 px-4 py-2.5 font-medium text-white shadow hover:bg-violet-700 disabled:opacity-50"
+            className="mono-button w-full py-2.5"
           >
             {pending ? 'Signing in…' : 'Sign in'}
           </button>

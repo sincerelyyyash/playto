@@ -17,6 +17,37 @@ function isNonTerminal(status: string): boolean {
   return status === 'pending' || status === 'processing'
 }
 
+function BalanceSkeleton() {
+  return (
+    <section>
+      <div className="skeleton mb-3 h-4 w-20" />
+      <div className="grid gap-4 sm:grid-cols-3">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="surface p-4">
+            <div className="skeleton h-3 w-16" />
+            <div className="skeleton mt-3 h-5 w-36" />
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function TableSkeleton({ rows = 4 }: { rows?: number }) {
+  return (
+    <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-900 shadow-sm">
+      <div className="border-b border-slate-800 bg-slate-800/60 px-3 py-3">
+        <div className="skeleton h-3 w-64" />
+      </div>
+      <div className="space-y-3 px-3 py-4">
+        {Array.from({ length: rows }).map((_, i) => (
+          <div key={i} className="skeleton h-4 w-full" />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function Dashboard() {
   const { merchant, logout } = useAuth()
   const [balance, setBalance] = useState<Balance | null>(null)
@@ -28,6 +59,7 @@ export function Dashboard() {
   const [amountInput, setAmountInput] = useState('')
   const [bankId, setBankId] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [coreLoading, setCoreLoading] = useState(true)
 
   const payoutsRef = useRef(payouts)
   useLayoutEffect(() => {
@@ -53,11 +85,14 @@ export function Dashboard() {
     let cancelled = false
     ;(async () => {
       try {
+        if (!cancelled) setCoreLoading(true)
         await refreshCore()
       } catch (e) {
         if (!cancelled) {
           setLoadError(e instanceof Error ? e.message : 'Failed to load data')
         }
+      } finally {
+        if (!cancelled) setCoreLoading(false)
       }
     })()
     return () => {
@@ -123,13 +158,13 @@ export function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
-      <header className="border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+    <div className="app-shell">
+      <header className="border-b border-slate-800 bg-slate-900">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-4">
           <div>
             <h1 className="text-lg font-semibold">Merchant dashboard</h1>
             {merchant ? (
-              <p className="text-sm text-slate-600 dark:text-slate-400">
+              <p className="text-sm text-slate-400">
                 {merchant.name} · {merchant.email}
               </p>
             ) : null}
@@ -137,7 +172,7 @@ export function Dashboard() {
           <button
             type="button"
             onClick={() => logout()}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-800"
+            className="mono-button-secondary"
           >
             Log out
           </button>
@@ -146,18 +181,20 @@ export function Dashboard() {
 
       <main className="mx-auto max-w-5xl space-y-8 px-4 py-8">
         {loadError ? (
-          <p className="rounded-lg bg-red-50 p-4 text-red-800 dark:bg-red-950/40 dark:text-red-200">
+          <p className="rounded-lg border border-slate-700 bg-slate-900 p-4 text-slate-300">
             {loadError}
           </p>
         ) : null}
 
-        {balance ? (
+        {coreLoading ? <BalanceSkeleton /> : null}
+
+        {!coreLoading && balance ? (
           <section>
-            <h2 className="mb-3 text-base font-semibold text-slate-800 dark:text-slate-200">
+            <h2 className="mb-3 text-base font-semibold text-slate-200">
               Balance
             </h2>
             <div className="grid gap-4 sm:grid-cols-3">
-              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <div className="surface p-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
                   Available
                 </p>
@@ -165,7 +202,7 @@ export function Dashboard() {
                   {formatPaiseLine(balance.available_paise)}
                 </p>
               </div>
-              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <div className="surface p-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
                   Held
                 </p>
@@ -173,7 +210,7 @@ export function Dashboard() {
                   {formatPaiseLine(balance.held_paise)}
                 </p>
               </div>
-              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <div className="surface p-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
                   Total
                 </p>
@@ -185,22 +222,22 @@ export function Dashboard() {
           </section>
         ) : null}
 
-        <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <h2 className="mb-4 text-base font-semibold text-slate-800 dark:text-slate-200">
+        <section className="surface p-6">
+          <h2 className="mb-4 text-base font-semibold text-slate-200">
             Request payout
           </h2>
           <form className="flex flex-col gap-4 sm:flex-row sm:items-end" onSubmit={onCreatePayout}>
             <div className="flex-1">
               <label
                 htmlFor="amount"
-                className="block text-sm font-medium text-slate-700 dark:text-slate-300"
+                className="block text-sm font-medium text-slate-300"
               >
                 Amount (paise, integer)
               </label>
               <input
                 id="amount"
                 inputMode="numeric"
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm dark:border-slate-600 dark:bg-slate-800"
+                className="mono-input font-mono"
                 placeholder="e.g. 5000"
                 value={amountInput}
                 onChange={(e) => setAmountInput(e.target.value.replace(/\D/g, ''))}
@@ -209,13 +246,13 @@ export function Dashboard() {
             <div className="min-w-[200px] flex-1">
               <label
                 htmlFor="bank"
-                className="block text-sm font-medium text-slate-700 dark:text-slate-300"
+                className="block text-sm font-medium text-slate-300"
               >
                 Bank account
               </label>
               <select
                 id="bank"
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800"
+                className="mono-input"
                 value={bankId}
                 onChange={(e) => setBankId(e.target.value)}
               >
@@ -229,23 +266,27 @@ export function Dashboard() {
             <button
               type="submit"
               disabled={submitting || bankAccounts.length === 0}
-              className="rounded-lg bg-violet-600 px-5 py-2 text-sm font-medium text-white hover:bg-violet-700 disabled:opacity-50"
+              className="mono-button px-5 text-sm"
             >
               {submitting ? 'Submitting…' : 'Submit payout'}
             </button>
           </form>
           {formError ? (
-            <p className="mt-3 text-sm text-red-600 dark:text-red-400">{formError}</p>
+            <p className="mt-3 rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-300">
+              {formError}
+            </p>
           ) : null}
         </section>
 
         <section>
-          <h2 className="mb-3 text-base font-semibold text-slate-800 dark:text-slate-200">
+          <h2 className="mb-3 text-base font-semibold text-slate-200">
             Payout history
           </h2>
-          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          {coreLoading ? <TableSkeleton rows={5} /> : null}
+          {!coreLoading ? (
+          <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-900 shadow-sm">
             <table className="min-w-full text-left text-sm">
-              <thead className="border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/80">
+              <thead className="border-b border-slate-800 bg-slate-800/60">
                 <tr>
                   <th className="px-3 py-2 font-medium">Created</th>
                   <th className="px-3 py-2 font-medium">Amount</th>
@@ -254,10 +295,10 @@ export function Dashboard() {
                   <th className="px-3 py-2 font-medium">Failure</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              <tbody className="divide-y divide-slate-800">
                 {payouts.map((p) => (
                   <tr key={p.id}>
-                    <td className="px-3 py-2 font-mono text-xs text-slate-600 dark:text-slate-400">
+                    <td className="px-3 py-2 font-mono text-xs text-slate-400">
                       {new Date(p.created_at).toLocaleString()}
                     </td>
                     <td className="px-3 py-2 font-mono">{p.amount_paise.toLocaleString('en-IN')}p</td>
@@ -265,17 +306,17 @@ export function Dashboard() {
                       <span
                         className={
                           isNonTerminal(p.status)
-                            ? 'rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-900/40 dark:text-amber-100'
+                            ? 'status-pill border border-slate-600'
                             : p.status === 'completed'
-                              ? 'rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100'
-                              : 'rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-800 dark:bg-slate-700 dark:text-slate-200'
+                              ? 'status-pill bg-slate-700 text-slate-100'
+                              : 'status-pill'
                         }
                       >
                         {p.status}
                       </span>
                     </td>
                     <td className="px-3 py-2 font-mono">{p.attempt_count}</td>
-                    <td className="max-w-xs truncate px-3 py-2 text-xs text-red-700 dark:text-red-300">
+                    <td className="max-w-xs truncate px-3 py-2 text-xs text-slate-400">
                       {p.failure_reason ?? '—'}
                     </td>
                   </tr>
@@ -286,15 +327,18 @@ export function Dashboard() {
               <p className="px-3 py-6 text-center text-sm text-slate-500">No payouts yet.</p>
             ) : null}
           </div>
+          ) : null}
         </section>
 
         <section>
-          <h2 className="mb-3 text-base font-semibold text-slate-800 dark:text-slate-200">
+          <h2 className="mb-3 text-base font-semibold text-slate-200">
             Recent ledger
           </h2>
-          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          {coreLoading ? <TableSkeleton rows={6} /> : null}
+          {!coreLoading ? (
+          <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-900 shadow-sm">
             <table className="min-w-full text-left text-sm">
-              <thead className="border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/80">
+              <thead className="border-b border-slate-800 bg-slate-800/60">
                 <tr>
                   <th className="px-3 py-2 font-medium">When</th>
                   <th className="px-3 py-2 font-medium">Type</th>
@@ -302,10 +346,10 @@ export function Dashboard() {
                   <th className="px-3 py-2 font-medium">Description</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              <tbody className="divide-y divide-slate-800">
                 {ledger.map((row) => (
                   <tr key={row.id}>
-                    <td className="px-3 py-2 font-mono text-xs text-slate-600 dark:text-slate-400">
+                    <td className="px-3 py-2 font-mono text-xs text-slate-400">
                       {new Date(row.created_at).toLocaleString()}
                     </td>
                     <td className="px-3 py-2 capitalize">{row.entry_type}</td>
@@ -313,7 +357,7 @@ export function Dashboard() {
                       {row.entry_type === 'debit' ? '−' : '+'}
                       {row.amount_paise.toLocaleString('en-IN')}p
                     </td>
-                    <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
+                    <td className="px-3 py-2 text-slate-300">
                       {row.description}
                     </td>
                   </tr>
@@ -324,6 +368,7 @@ export function Dashboard() {
               <p className="px-3 py-6 text-center text-sm text-slate-500">No ledger entries.</p>
             ) : null}
           </div>
+          ) : null}
         </section>
       </main>
     </div>

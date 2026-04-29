@@ -2,6 +2,18 @@
 
 export const AUTH_TOKEN_STORAGE_KEY = 'playto_auth_token'
 
+export function getStoredAuthToken(): string | null {
+  return localStorage.getItem(AUTH_TOKEN_STORAGE_KEY)
+}
+
+export function setStoredAuthToken(token: string): void {
+  localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token)
+}
+
+export function clearStoredAuthToken(): void {
+  localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY)
+}
+
 function apiUrl(path: string): string {
   const p = path.replace(/^\//, '')
   const base = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
@@ -57,7 +69,7 @@ export async function apiFetch<T>(
     headers.set('Content-Type', 'application/json')
   }
   if (!skipAuth) {
-    const t = sessionStorage.getItem(AUTH_TOKEN_STORAGE_KEY)
+    const t = getStoredAuthToken()
     if (t) headers.set('Authorization', `Token ${t}`)
   }
   if (idempotencyKey) {

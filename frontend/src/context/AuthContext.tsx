@@ -7,7 +7,13 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { apiFetch, AUTH_TOKEN_STORAGE_KEY } from '../api/client'
+import {
+  ApiError,
+  apiFetch,
+  clearStoredAuthToken,
+  getStoredAuthToken,
+  setStoredAuthToken,
+} from '../api/client'
 import type { Merchant } from '../api/types'
 
 type AuthContextValue = {
@@ -21,9 +27,7 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [token, setToken] = useState<string | null>(() =>
-    sessionStorage.getItem(AUTH_TOKEN_STORAGE_KEY),
-  )
+  const [token, setToken] = useState<string | null>(() => getStoredAuthToken())
   const [merchant, setMerchant] = useState<Merchant | null>(null)
   const [bootstrapping, setBootstrapping] = useState(!!token)
 
@@ -38,11 +42,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const m = await apiFetch<Merchant>('me/')
         if (!cancelled) setMerchant(m)
-      } catch {
+      } catch (err) {
         if (!cancelled) {
-          sessionStorage.removeItem(AUTH_TOKEN_STORAGE_KEY)
-          setMerchant(null)
-          setToken(null)
+          // Keep session on transient API/network errors; clear only invalid tokens.
+          if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+            clearStoredAuthToken()
+            setMerchant(null)
+            setToken(null)
+          }
         }
       } finally {
         if (!cancelled) setBootstrapping(false)
@@ -63,12 +70,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         skipAuth: true,
       },
     )
-    sessionStorage.setItem(AUTH_TOKEN_STORAGE_KEY, newToken)
+    setStoredAuthToken(newToken)
     setToken(newToken)
   }, [])
 
   const logout = useCallback(() => {
-    sessionStorage.removeItem(AUTH_TOKEN_STORAGE_KEY)
+    clearStoredAuthToken()
     setMerchant(null)
     setToken(null)
   }, [])
