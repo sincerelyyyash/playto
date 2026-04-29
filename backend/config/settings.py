@@ -6,6 +6,7 @@ behaviour can be toggled in tests and demos without code changes.
 """
 
 from pathlib import Path
+import ssl
 
 import environ
 
@@ -101,6 +102,12 @@ REST_FRAMEWORK = {
 # --- Celery ---------------------------------------------------------------
 CELERY_BROKER_URL = env("CELERY_BROKER_URL", default="redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND", default="redis://localhost:6379/1")
+# Hosted Redis (e.g. Upstash) uses rediss:// — Kombu needs explicit SSL or the worker
+# can exit immediately on connect.
+if CELERY_BROKER_URL.startswith("rediss://"):
+    CELERY_BROKER_USE_SSL = {"ssl_cert_reqs": ssl.CERT_REQUIRED}
+if CELERY_RESULT_BACKEND.startswith("rediss://"):
+    CELERY_REDIS_BACKEND_USE_SSL = {"ssl_cert_reqs": ssl.CERT_REQUIRED}
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
