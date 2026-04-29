@@ -6,6 +6,7 @@ behaviour can be toggled in tests and demos without code changes.
 """
 
 from pathlib import Path
+import os
 
 import environ
 
@@ -118,6 +119,11 @@ CELERY_BROKER_URL = _ensure_rediss_ssl_cert_reqs(
 CELERY_RESULT_BACKEND = _ensure_rediss_ssl_cert_reqs(
     env("CELERY_RESULT_BACKEND", default="redis://localhost:6379/1")
 )
+# Celery 5.4 + Kombu may read broker/backend from os.environ; PM2 injects .env
+# before Django loads. Overwrite so rediss:// always includes ssl_cert_reqs.
+os.environ["CELERY_BROKER_URL"] = CELERY_BROKER_URL
+os.environ["CELERY_RESULT_BACKEND"] = CELERY_RESULT_BACKEND
+
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
