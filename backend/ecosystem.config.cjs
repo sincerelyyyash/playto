@@ -55,9 +55,16 @@ function loadDotEnv(filePath) {
 
 function ensureRedissSslCertReqs(url) {
   if (!url || typeof url !== 'string' || !url.startsWith('rediss://')) return url
-  if (url.includes('ssl_cert_reqs=')) return url
-  const sep = url.includes('?') ? '&' : '?'
-  return `${url}${sep}ssl_cert_reqs=CERT_REQUIRED`
+  if (url.toLowerCase().includes('ssl_cert_reqs=')) return url
+  try {
+    const u = new URL(url)
+    if (u.searchParams.has('ssl_cert_reqs')) return url
+    u.searchParams.set('ssl_cert_reqs', 'CERT_REQUIRED')
+    return u.toString()
+  } catch {
+    const sep = url.includes('?') ? '&' : '?'
+    return `${url}${sep}ssl_cert_reqs=CERT_REQUIRED`
+  }
 }
 
 const rawEnv = loadDotEnv(ENV_PATH)

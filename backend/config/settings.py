@@ -7,6 +7,8 @@ behaviour can be toggled in tests and demos without code changes.
 
 from pathlib import Path
 import os
+import ssl
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import environ
 
@@ -14,15 +16,29 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 def _ensure_rediss_ssl_cert_reqs(url: str) -> str:
-    """Celery 5.4+ validates rediss:// URLs and requires ssl_cert_reqs in the query
-    string (celery.backends.redis); backend SSL dict alone is not read early enough.
+    """Celery 5.4+ Redis backend requires ssl_cert_reqs on rediss:// (query string).
+
+    Use proper query merging so existing params survive and edge paths (e.g. trailing
+    slashes) are preserved.
     """
+
     if not url.startswith("rediss://"):
         return url
-    if "ssl_cert_reqs=" in url:
+    if "ssl_cert_reqs=" in url.lower():
         return url
-    sep = "&" if "?" in url else "?"
-    return f"{url}{sep}ssl_cert_reqs=CERT_REQUIRED"
+    try:
+        parts = urlparse(url)
+        q = [
+            (k, v)
+            for k, v in parse_qsl(parts.query, keep_blank_values=True)
+            if k.lower() != "ssl_cert_reqs"
+        ]
+        q.append(("ssl_cert_reqs", "CERT_REQUIRED"))
+        new_query = urlencode(q)
+        return urlunparse(parts._replace(query=new_query))
+    except Exception:
+        sep = "&" if "?" in url else "?"
+        return f"{url}{sep}ssl_cert_reqs=CERT_REQUIRED"
 
 
 env = environ.Env(
@@ -123,6 +139,12 @@ CELERY_RESULT_BACKEND = _ensure_rediss_ssl_cert_reqs(
 # before Django loads. Overwrite so rediss:// always includes ssl_cert_reqs.
 os.environ["CELERY_BROKER_URL"] = CELERY_BROKER_URL
 os.environ["CELERY_RESULT_BACKEND"] = CELERY_RESULT_BACKEND
+
+# Satisfy Kombu + redis backend TLS expectations (warnings or strict checks).
+if CELERY_BROKER_URL.startswith("rediss://"):
+    CELERY_BROKER_USE_SSL = {"ssl_cert_reqs": ssl.CERT_REQUIRED}
+if CELERY_RESULT_BACKEND.startswith("rediss://"):
+    CELERY_REDIS_BACKEND_USE_SSL = {"ssl_cert_reqs": ssl.CERT_REQUIRED}
 
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TIMEZONE = TIME_ZONE
